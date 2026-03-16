@@ -252,6 +252,9 @@ def main():
         "--train-data", type=str, nargs="+", default=None,
         help="Training data sources (code_contests, mbpp_full). Default: code_contests",
     )
+    parser.add_argument("--batch-size", type=int, default=None, help="Override batch_size")
+    parser.add_argument("--num-rollouts", type=int, default=None, help="Override num_rollouts")
+    parser.add_argument("--max-length", type=int, default=None, help="Override max_completion_length")
     args = parser.parse_args()
 
     cfg = Config()
@@ -263,6 +266,12 @@ def main():
         cfg.learning_rate = args.lr
     if args.train_data:
         cfg.train_benchmarks = args.train_data
+    if args.batch_size:
+        cfg.batch_size = args.batch_size
+    if args.num_rollouts:
+        cfg.num_rollouts = args.num_rollouts
+    if args.max_length:
+        cfg.max_completion_length = args.max_length
 
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
     os.makedirs(cfg.log_dir, exist_ok=True)
