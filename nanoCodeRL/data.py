@@ -24,12 +24,27 @@ SYSTEM_PROMPT_IO = (
 # Prompt formatting
 # ---------------------------------------------------------------------------
 
+def _extract_mbpp_func_name(problem: dict) -> str | None:
+    """Extract the expected function name from MBPP test assertions."""
+    import re
+    tests = problem.get("test_list", [])
+    if not tests:
+        return None
+    match = re.search(r'assert (\w+)\(', tests[0])
+    return match.group(1) if match else None
+
+
 def format_prompt(problem: dict, source: str) -> str:
     """Format a coding problem into a prompt string."""
     if source == "humaneval":
         return problem["prompt"]
     elif source == "mbpp":
-        return f"# {problem['text'] if 'text' in problem else problem['prompt']}\n\n"
+        desc = problem['text'] if 'text' in problem else problem['prompt']
+        # Extract expected function name from test cases so the model uses the right name
+        func_name = _extract_mbpp_func_name(problem)
+        if func_name:
+            return f"# {desc}\n# Function signature: def {func_name}(...)\n\n"
+        return f"# {desc}\n\n"
     elif source == "code_contests":
         return problem["description"]
     else:
