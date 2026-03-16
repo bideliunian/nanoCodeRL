@@ -276,6 +276,10 @@ def main():
     # Load model
     model, tokenizer = load_model_and_tokenizer(cfg)
 
+    # Fix for trl/peft compatibility: Add warnings_issued attribute
+    if not hasattr(model, 'warnings_issued'):
+        model.warnings_issued = {}
+
     # Build reward function
     reward_fn, register_problems = build_reward_fn(cfg)
     register_problems(problems)
