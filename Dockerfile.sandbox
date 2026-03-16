@@ -1,0 +1,13 @@
+# Lightweight sandbox for executing model-generated code safely.
+# Build: docker build -f Dockerfile.sandbox -t nanocodrl-sandbox .
+# Used automatically when Config.use_docker_sandbox = True.
+
+FROM python:3.10-slim
+
+# No network, no root home, no pip cache
+RUN useradd -m -s /bin/bash sandbox
+USER sandbox
+WORKDIR /code
+
+# Drop all capabilities
+ENTRYPOINT ["python"]

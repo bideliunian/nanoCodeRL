@@ -1,0 +1,33 @@
+[project]
+name = "nanoCodeRL"
+version = "0.1.0"
+description = "Minimal coding agent RL — DAPO on Qwen3.5-4B-Base"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2.0",
+    "transformers>=4.51.0",
+    "trl>=0.17.0",
+    "datasets",
+    "accelerate",
+    "peft",
+    "bitsandbytes",
+    "wandb",
+    "huggingface-hub[cli]>=1.6.0",
+]
+
+[project.optional-dependencies]
+unsloth = ["unsloth"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nanoCodeRL*"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+]

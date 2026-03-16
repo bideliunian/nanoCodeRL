@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Training outputs
+checkpoints/
+logs/
+results/
+wandb/
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Generated docs (local only)
+nanoCodeRL/docs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model weights (cached by HF)
+*.bin
+*.safetensors

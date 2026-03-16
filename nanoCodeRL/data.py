@@ -1,0 +1,193 @@
+"""Dataset loading for training and evaluation.
+
+Training:  CodeContests (stdin/stdout) — completely separate source from eval.
+Eval:      HumanEval + MBPP sanitized test — held-out benchmarks, never trained on.
+"""
+
+import json
+
+from datasets import load_dataset
+
+
+SYSTEM_PROMPT = (
+    "You are a Python coding assistant. Write a correct Python function "
+    "that solves the given problem. Output only the function code, no explanation."
+)
+
+SYSTEM_PROMPT_IO = (
+    "You are a Python coding assistant. Write a complete Python program "
+    "that reads from stdin and writes to stdout. Output only the code, no explanation."
+)
+
+
+# ---------------------------------------------------------------------------
+# Prompt formatting
+# ---------------------------------------------------------------------------
+
+def format_prompt(problem: dict, source: str) -> str:
+    """Format a coding problem into a prompt string."""
+    if source == "humaneval":
+        return problem["prompt"]
+    elif source == "mbpp":
+        return f"# {problem['text'] if 'text' in problem else problem['prompt']}\n\n"
+    elif source == "code_contests":
+        return problem["description"]
+    else:
+        raise ValueError(f"Unknown source: {source}")
+
+
+def get_test_cases(problem: dict, source: str) -> list[str] | list[dict]:
+    """Extract test cases from a problem.
+
+    Returns:
+      - list[str] for assertion-based tests (HumanEval/MBPP)
+      - list[dict] with {"input": ..., "output": ...} for stdin/stdout tests
+    """
+    if source == "humaneval":
+        return [problem["test"]]
+    elif source == "mbpp":
+        return problem.get("test_list", [])
+    elif source == "code_contests":
+        inputs = problem["public_tests"]["input"] + problem["private_tests"]["input"]
+        outputs = problem["public_tests"]["output"] + problem["private_tests"]["output"]
+        # Also include generated tests (up to 20 to keep execution fast)
+        gen_inputs = problem["generated_tests"]["input"][:20]
+        gen_outputs = problem["generated_tests"]["output"][:20]
+        inputs += gen_inputs
+        outputs += gen_outputs
+        return [{"input": i, "output": o} for i, o in zip(inputs, outputs)]
+    else:
+        raise ValueError(f"Unknown source: {source}")
+
+
+# ---------------------------------------------------------------------------
+# Eval-only datasets
+# ---------------------------------------------------------------------------
+
+def load_humaneval() -> list[dict]:
+    """Load HumanEval dataset (eval-only, single 'test' split)."""
+    ds = load_dataset("openai/openai_humaneval", split="test")
+    problems = []
+    for item in ds:
+        problems.append({
+            "task_id": item["task_id"],
+            "prompt": format_prompt(item, "humaneval"),
+            "test_cases": get_test_cases(item, "humaneval"),
+            "entry_point": item["entry_point"],
+            "source": "humaneval",
+        })
+    return problems
+
+
+def load_mbpp(split: str = "train") -> list[dict]:
+    """Load MBPP sanitized dataset for the given split (train/validation/test)."""
+    ds = load_dataset("google-research-datasets/mbpp", "sanitized", split=split)
+    problems = []
+    for item in ds:
+        problems.append({
+            "task_id": f"mbpp_{item['task_id']}",
+            "prompt": format_prompt(item, "mbpp"),
+            "test_cases": get_test_cases(item, "mbpp"),
+            "source": "mbpp",
+        })
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Training datasets
+# ---------------------------------------------------------------------------
+
+def load_code_contests(split: str = "train", max_problems: int | None = None,
+                       min_tests: int = 2) -> list[dict]:
+    """Load CodeContests dataset for training (stdin/stdout format).
+
+    Args:
+        split: Dataset split to load.
+        max_problems: Cap the number of problems (None = all).
+        min_tests: Skip problems with fewer than this many test cases.
+    """
+    try:
+        ds = load_dataset("deepmind/code_contests", split=split)
+    except (FileNotFoundError, Exception) as e:
+        raise RuntimeError(
+            f"CodeContests dataset not available: {e}\n"
+            f"Download it first: python -m scripts.prefetch\n"
+            f"Or use --train-benchmarks mbpp_full as a lighter alternative."
+        ) from e
+
+    problems = []
+    for item in ds:
+        # Only keep problems with sufficient tests
+        test_cases = get_test_cases(item, "code_contests")
+        if len(test_cases) < min_tests:
+            continue
+
+        problems.append({
+            "task_id": f"cc_{item['name']}",
+            "prompt": format_prompt(item, "code_contests"),
+            "test_cases": test_cases,
+            "source": "code_contests",
+        })
+
+        if max_problems and len(problems) >= max_problems:
+            break
+
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def load_training_data(benchmarks: list[str] | None = None) -> list[dict]:
+    """Load training data from dedicated training sources.
+
+    Supported sources:
+      - "code_contests": CodeContests train split (stdin/stdout, ~13K problems)
+      - "mbpp_full": MBPP full train split (assertions, ~374 problems)
+
+    HumanEval and MBPP sanitized are eval-only and cannot be used for training.
+    """
+    if benchmarks is None:
+        benchmarks = ["code_contests"]
+
+    problems = []
+    for bench in benchmarks:
+        if bench == "code_contests":
+            problems.extend(load_code_contests(split="train"))
+        elif bench == "mbpp_full":
+            ds = load_dataset("google-research-datasets/mbpp", "full", split="train")
+            for item in ds:
+                problems.append({
+                    "task_id": f"mbpp_full_{item['task_id']}",
+                    "prompt": format_prompt(item, "mbpp"),
+                    "test_cases": item.get("test_list", []),
+                    "source": "mbpp",
+                })
+        else:
+            raise ValueError(
+                f"Unknown training source: {bench}. "
+                f"Available: code_contests, mbpp_full. "
+                f"(HumanEval and MBPP sanitized are eval-only.)"
+            )
+
+    print(f"Loaded {len(problems)} training problems from {benchmarks}")
+    return problems
+
+
+def load_eval_data(benchmarks: list[str] | None = None) -> list[dict]:
+    """Load eval data. HumanEval + MBPP sanitized test (no overlap with training)."""
+    if benchmarks is None:
+        benchmarks = ["humaneval", "mbpp"]
+
+    problems = []
+    for bench in benchmarks:
+        if bench == "humaneval":
+            problems.extend(load_humaneval())
+        elif bench == "mbpp":
+            problems.extend(load_mbpp(split="test"))
+        else:
+            raise ValueError(f"Unknown eval benchmark: {bench}")
+
+    print(f"Loaded {len(problems)} eval problems from {benchmarks}")
+    return problems
