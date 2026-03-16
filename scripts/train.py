@@ -119,7 +119,16 @@ def prepare_dataset(problems: list[dict], tokenizer) -> list[dict]:
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": p["prompt"]},
         ]
-        dataset.append({"prompt": messages})
+        # Apply chat template ourselves and pass as text string to avoid TRL trying to apply it
+        try:
+            prompt_text = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            # Fallback if no chat template: simple concatenation
+            prompt_text = f"{sys_prompt}\n\n{p['prompt']}"
+
+        dataset.append({"prompt": prompt_text})
     return dataset
 
 
