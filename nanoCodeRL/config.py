@@ -20,7 +20,7 @@ class Config:
 
     # Generation
     enable_thinking: bool = False
-    max_completion_length: int = 1024  # tokens
+    max_completion_length: int = 2048  # tokens (RTX 5090 32GB)
     temperature: float = 0.7
     top_p: float = 0.95
 
