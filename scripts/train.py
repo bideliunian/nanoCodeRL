@@ -76,22 +76,19 @@ def load_model_and_tokenizer(cfg: Config):
     return model, tokenizer
 
 
-def build_reward_fn(cfg: Config):
-    """Build the reward function for GRPO training with parallel sandbox execution."""
-    _problem_cache = {}
+def build_reward_fn(cfg: Config, problems: list[dict]):
+    """Build the reward function for GRPO training with parallel sandbox execution.
 
-    def register_problem(key: str, problem: dict):
-        """Register a problem keyed by its templated prompt string."""
-        _problem_cache[key] = problem
+    Uses integer problem indices passed through the dataset to look up test cases,
+    avoiding string-matching issues caused by TRL's tokenize-then-decode pipeline.
+    """
+    # Index problems by their integer position
+    _problems = list(problems)
 
-    def reward_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
-        # Build tasks for parallel execution
+    def reward_fn(completions: list[str], problem_idx: list[int], **kwargs) -> list[float]:
         tasks = []
-        for completion, prompt in zip(completions, prompts):
-            problem = _problem_cache.get(prompt)
-            if problem is None:
-                tasks.append((completion, []))  # will get 0.0
-                continue
+        for completion, idx in zip(completions, problem_idx):
+            problem = _problems[idx]
 
             if problem["source"] == "humaneval":
                 code = problem["prompt"] + completion
@@ -107,25 +104,22 @@ def build_reward_fn(cfg: Config):
             use_docker=cfg.use_docker_sandbox,
         )
 
-    return reward_fn, register_problem
+    return reward_fn
 
 
-def prepare_dataset(problems: list[dict], tokenizer, register_problem_fn,
-                    cfg: Config) -> list[dict]:
+def prepare_dataset(problems: list[dict], tokenizer, cfg: Config) -> list[dict]:
     """Convert problems into the format expected by GRPOTrainer.
 
-    Applies the chat template to build prompt strings and registers each
-    templated prompt in the reward cache so ``reward_fn`` can look up the
-    original problem when TRL passes the prompt back.
+    Includes a ``problem_idx`` column that TRL passes through to the reward
+    function via kwargs, avoiding prompt string-matching issues.
     """
     dataset = []
-    for p in problems:
+    for i, p in enumerate(problems):
         messages = build_messages(p["prompt"], p["source"])
         prompt_text = apply_chat_template(
             tokenizer, messages, enable_thinking=cfg.enable_thinking,
         )
-        register_problem_fn(prompt_text, p)
-        dataset.append({"prompt": prompt_text})
+        dataset.append({"prompt": prompt_text, "problem_idx": i})
     return dataset
 
 
@@ -290,11 +284,11 @@ def main():
     if not hasattr(model, 'warnings_issued'):
         model.warnings_issued = {}
 
-    # Build reward function
-    reward_fn, register_problem = build_reward_fn(cfg)
+    # Build reward function (uses problem indices, not string matching)
+    reward_fn = build_reward_fn(cfg, problems)
 
-    # Prepare dataset (applies chat template and registers prompts in reward cache)
-    dataset = prepare_dataset(problems, tokenizer, register_problem, cfg)
+    # Prepare dataset (includes problem_idx for reward lookup)
+    dataset = prepare_dataset(problems, tokenizer, cfg)
 
     # Configure GRPO with DAPO settings
     training_config = GRPOConfig(
