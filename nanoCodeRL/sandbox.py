@@ -25,8 +25,13 @@ def extract_code(completion: str) -> str:
     # Remove <think>...</think> blocks (Qwen3 thinking mode leaking into output)
     completion = re.sub(r"<think>.*?</think>", "", completion, flags=re.DOTALL).strip()
 
-    # Extract first python code block
+    # Extract from a complete code block (opening + closing fence)
     match = re.search(r"```(?:python)?\n(.*?)```", completion, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # Truncated completion: opening fence present but no closing fence (hit max_tokens)
+    match = re.search(r"```(?:python)?\n(.*)", completion, re.DOTALL)
     if match:
         return match.group(1).strip()
 

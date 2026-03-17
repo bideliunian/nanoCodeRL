@@ -45,6 +45,14 @@ class Config:
     train_benchmarks: list[str] = field(
         default_factory=lambda: ["code_contests"]
     )
+    # CodeContests difficulty filter. Enum clusters: 0=unknown(33%), 1-6=easy(7%),
+    # 7-11=medium/hard(52%), 12+=very hard(8%). Default 7 keeps easy problems only.
+    # Set None to disable.
+    cc_max_difficulty: int | None = 7
+    # Primary filter: skip problems where shortest accepted solution > N chars.
+    # 800 chars ≈ 250 tokens — ensures completions fit within max_completion_length.
+    # Set None to disable.
+    cc_max_solution_chars: int | None = 800
 
     # Evaluation
     eval_every_n_steps: int = 50

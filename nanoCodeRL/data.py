@@ -152,13 +152,21 @@ def load_mbpp(split: str = "train") -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def load_code_contests(split: str = "train", max_problems: int | None = None,
-                       min_tests: int = 2) -> list[dict]:
+                       min_tests: int = 2, max_difficulty: int | None = 3,
+                       max_solution_chars: int | None = 800) -> list[dict]:
     """Load CodeContests dataset for training (stdin/stdout format).
 
     Args:
         split: Dataset split to load.
         max_problems: Cap the number of problems (None = all).
         min_tests: Skip problems with fewer than this many test cases.
+        max_difficulty: Skip problems harder than this difficulty level.
+            The difficulty field is an internal enum. Distribution:
+            0=unknown(33%), 1-6=easy(7%), 7-11=medium/hard(52%), 12+=very hard.
+            Default 7 keeps easy problems only; set None to disable filtering.
+        max_solution_chars: Skip problems where the shortest accepted solution
+            exceeds this character count (proxy for required completion length).
+            Default 800 chars ≈ ~300 tokens. Set None to disable.
     """
     try:
         ds = load_dataset("deepmind/code_contests", split=split)
@@ -171,6 +179,21 @@ def load_code_contests(split: str = "train", max_problems: int | None = None,
 
     problems = []
     for item in ds:
+        # Filter by difficulty (skip hard competitive programming problems)
+        if max_difficulty is not None:
+            diff = item.get("difficulty", 0)
+            if diff > max_difficulty:
+                continue
+
+        # Filter by solution length (proxy for required completion tokens)
+        if max_solution_chars is not None:
+            sols = item.get("solutions", {})
+            sol_codes = sols.get("solution", []) if isinstance(sols, dict) else []
+            if sol_codes:
+                shortest = min(len(c) for c in sol_codes)
+                if shortest > max_solution_chars:
+                    continue
+
         # Only keep problems with sufficient tests
         test_cases = get_test_cases(item, "code_contests")
         if len(test_cases) < min_tests:
@@ -193,7 +216,7 @@ def load_code_contests(split: str = "train", max_problems: int | None = None,
 # Public API
 # ---------------------------------------------------------------------------
 
-def load_training_data(benchmarks: list[str] | None = None) -> list[dict]:
+def load_training_data(benchmarks: list[str] | None = None, **kwargs) -> list[dict]:
     """Load training data from dedicated training sources.
 
     Supported sources:
@@ -208,7 +231,11 @@ def load_training_data(benchmarks: list[str] | None = None) -> list[dict]:
     problems = []
     for bench in benchmarks:
         if bench == "code_contests":
-            problems.extend(load_code_contests(split="train"))
+            problems.extend(load_code_contests(
+                split="train",
+                max_difficulty=kwargs.get("max_difficulty", 3),
+                max_solution_chars=kwargs.get("max_solution_chars", 800),
+            ))
         elif bench == "mbpp_full":
             ds = load_dataset("google-research-datasets/mbpp", "full", split="train")
             for item in ds:

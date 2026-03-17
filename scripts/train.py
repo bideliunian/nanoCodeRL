@@ -293,7 +293,11 @@ def main():
     print()
 
     # Load data (training split only — eval uses separate held-out data)
-    problems = load_training_data(cfg.train_benchmarks)
+    problems = load_training_data(
+        cfg.train_benchmarks,
+        max_difficulty=cfg.cc_max_difficulty,
+        max_solution_chars=cfg.cc_max_solution_chars,
+    )
 
     # Load model
     model, tokenizer = load_model_and_tokenizer(cfg)
