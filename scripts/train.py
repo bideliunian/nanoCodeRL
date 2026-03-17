@@ -81,12 +81,19 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
 
     Uses integer problem indices passed through the dataset to look up test cases,
     avoiding string-matching issues caused by TRL's tokenize-then-decode pipeline.
+
+    Also implements DAPO dynamic sampling feedback: tracks which problems produce
+    zero-variance reward groups so the DynamicSampler can deprioritize them before
+    the next generation step.
     """
     # Index problems by their integer position
     _problems = list(problems)
 
     _debug = os.environ.get("REWARD_DEBUG", "0") == "1"
     _step = [0]
+
+    # Dynamic sampling state: consecutive zero-variance counts per problem index
+    zero_var_counts: dict[int, int] = {}
 
     def reward_fn(completions: list[str], problem_idx: list[int], **kwargs) -> list[float]:
         tasks = []
@@ -108,6 +115,17 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
             use_docker=cfg.use_docker_sandbox,
         )
 
+        # DAPO dynamic sampling feedback: track zero-variance groups per problem.
+        # Group rollouts by problem_idx and check if all rewards are identical.
+        grouped: dict[int, list[float]] = {}
+        for idx, r in zip(problem_idx, rewards):
+            grouped.setdefault(idx, []).append(r)
+        for idx, group_rewards in grouped.items():
+            if len(set(group_rewards)) <= 1:  # zero variance
+                zero_var_counts[idx] = zero_var_counts.get(idx, 0) + 1
+            else:
+                zero_var_counts[idx] = 0  # reset on success
+
         if _debug:
             _step[0] += 1
             print(f"\n=== REWARD_DEBUG step {_step[0]} ===")
@@ -121,6 +139,7 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
 
         return rewards
 
+    reward_fn.zero_var_counts = zero_var_counts  # expose for DynamicSampler
     return reward_fn
 
 
@@ -138,6 +157,50 @@ def prepare_dataset(problems: list[dict], tokenizer, cfg: Config) -> list[dict]:
         )
         dataset.append({"prompt": prompt_text, "problem_idx": i})
     return dataset
+
+
+# ---------------------------------------------------------------------------
+# DAPO dynamic sampling
+# ---------------------------------------------------------------------------
+
+class DynamicSampler(torch.utils.data.Sampler):
+    """DAPO dynamic sampling: deprioritize problems with consistently zero-variance rewards.
+
+    After each step, the reward function reports which problem indices had
+    zero-variance rollouts (all pass or all fail). Problems that fail
+    `max_zero_var_streak` times consecutively are moved to a low-priority pool
+    and sampled rarely, ensuring the training batch always contains learnable
+    examples with non-trivial reward signal.
+    """
+
+    def __init__(self, dataset, reward_fn, max_zero_var_streak: int = 3,
+                 deprioritize_prob: float = 0.05):
+        self.dataset = dataset
+        self.reward_fn = reward_fn
+        self.max_zero_var_streak = max_zero_var_streak
+        self.deprioritize_prob = deprioritize_prob  # prob of sampling a bad problem
+        self._rng = torch.Generator()
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __iter__(self):
+        counts = self.reward_fn.zero_var_counts
+        n = len(self.dataset)
+        active = [i for i in range(n)
+                  if counts.get(i, 0) < self.max_zero_var_streak]
+        inactive = [i for i in range(n)
+                    if counts.get(i, 0) >= self.max_zero_var_streak]
+
+        # Shuffle active pool; occasionally inject inactive problems so they can recover
+        order = active.copy()
+        import random
+        random.shuffle(order)
+        for idx in inactive:
+            if random.random() < self.deprioritize_prob:
+                order.append(idx)
+
+        return iter(order)
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +383,7 @@ def main():
         per_device_train_batch_size=cfg.batch_size,
         num_generations=cfg.num_rollouts,
         max_completion_length=cfg.max_completion_length,
+        max_prompt_length=cfg.max_prompt_length,
         learning_rate=cfg.learning_rate,
         lr_scheduler_type=cfg.lr_scheduler,
         warmup_steps=cfg.warmup_steps,
@@ -327,6 +391,13 @@ def main():
         save_steps=cfg.eval_every_n_steps,
         bf16=True,
         loss_type="dapo",
+        # DAPO Clip-Higher: asymmetric clipping encourages exploration on good samples
+        epsilon=cfg.clip_eps,           # lower bound (standard PPO clip)
+        epsilon_high=cfg.clip_eps_high, # upper bound > epsilon (DAPO-specific)
+        # Mask truncated completions from the loss (DAPO overlong handling):
+        # sequences hitting max_completion_length get reward=0 naturally; masking
+        # additionally prevents their noisy gradients from polluting the update.
+        mask_truncated_completions=True,
         report_to="wandb" if cfg.use_wandb else "none",
         run_name=f"nanoCodeRL-{cfg.model_name.split('/')[-1]}",
         # vLLM: PagedAttention for generation + sleep mode frees VRAM for backward pass
@@ -341,11 +412,23 @@ def main():
     # Build callbacks
     eval_callback = IntermediateEvalCallback(model, tokenizer, cfg)
 
+    # DAPO dynamic sampling: build filtered dataset using DynamicSampler.
+    # DynamicSampler reads zero_var_counts from reward_fn after each step.
+    # On the first run the counts are all 0, so all problems are included.
+    # Re-run with --filter-zero-var after a warm-up run to exclude problems
+    # where the model consistently gets zero-variance rewards (all-pass/all-fail).
+    dynamic_sampler = DynamicSampler(dataset, reward_fn)
+    filtered_indices = list(dynamic_sampler)
+    filtered_dataset = [dataset[i] for i in filtered_indices]
+    if len(filtered_dataset) < len(dataset):
+        print(f"Dynamic sampling: {len(filtered_dataset)}/{len(dataset)} problems active "
+              f"({len(dataset) - len(filtered_dataset)} deprioritized)")
+
     # Initialize trainer
     trainer = GRPOTrainer(
         model=model,
         args=training_config,
-        train_dataset=dataset,
+        train_dataset=filtered_dataset,
         reward_funcs=reward_fn,
         processing_class=tokenizer,
         callbacks=[eval_callback],
