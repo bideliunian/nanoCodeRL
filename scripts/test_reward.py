@@ -58,6 +58,36 @@ def test_reward_lookup():
     print("  All reward lookup tests passed!")
 
 
+def test_markdown_extraction():
+    """Test that markdown-wrapped completions get correct rewards (not always 0)."""
+    from nanoCodeRL.config import Config
+    from nanoCodeRL.data import load_humaneval
+    from scripts.train import build_reward_fn
+
+    cfg = Config()
+    problems = load_humaneval()[:1]
+    reward_fn = build_reward_fn(cfg, problems)
+
+    # Same correct solution but wrapped in markdown fences (as models actually output)
+    markdown_completion = (
+        "```python\n"
+        "    for i, n1 in enumerate(numbers):\n"
+        "        for j, n2 in enumerate(numbers):\n"
+        "            if i != j and abs(n1 - n2) < threshold:\n"
+        "                return True\n"
+        "    return False\n"
+        "```"
+    )
+
+    rewards = reward_fn(completions=[markdown_completion], problem_idx=[0])
+    print(f"  Test — markdown-wrapped correct solution: reward={rewards[0]:.2f} (expected 1.0)")
+    assert rewards[0] == 1.0, (
+        f"Expected reward 1.0 for markdown-wrapped solution, got {rewards[0]}. "
+        "This indicates extract_code() is not stripping fences before sandbox execution."
+    )
+    print("  Markdown extraction test passed!")
+
+
 def test_dataset_has_problem_idx():
     """Test that prepare_dataset includes problem_idx column."""
     from transformers import AutoTokenizer
@@ -90,11 +120,15 @@ def main():
     print()
 
     try:
-        print("[1/2] Testing reward lookup via problem_idx...")
+        print("[1/3] Testing reward lookup via problem_idx...")
         test_reward_lookup()
         print()
 
-        print("[2/2] Testing dataset includes problem_idx...")
+        print("[2/3] Testing markdown code fence extraction...")
+        test_markdown_extraction()
+        print()
+
+        print("[3/3] Testing dataset includes problem_idx...")
         test_dataset_has_problem_idx()
         print()
 

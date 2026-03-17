@@ -16,7 +16,7 @@ from trl import GRPOConfig, GRPOTrainer
 
 from nanoCodeRL.config import Config
 from nanoCodeRL.data import load_training_data, load_eval_data, build_messages, apply_chat_template
-from nanoCodeRL.sandbox import compute_reward, compute_rewards_parallel
+from nanoCodeRL.sandbox import compute_reward, compute_rewards_parallel, extract_code
 
 
 def load_model_and_tokenizer(cfg: Config):
@@ -89,11 +89,12 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
         tasks = []
         for completion, idx in zip(completions, problem_idx):
             problem = _problems[idx]
+            clean = extract_code(completion)
 
             if problem["source"] == "humaneval":
-                code = problem["prompt"] + completion
+                code = problem["prompt"] + clean
             else:
-                code = completion
+                code = clean
 
             tasks.append((code, problem["test_cases"]))
 
@@ -189,10 +190,11 @@ class IntermediateEvalCallback(TrainerCallback):
             source = problem["source"]
             completion = self._generate_solution(problem["prompt"], source)
 
+            clean = extract_code(completion)
             if source == "humaneval":
-                code = problem["prompt"] + completion
+                code = problem["prompt"] + clean
             else:
-                code = completion
+                code = clean
 
             result = compute_reward(
                 code=code,

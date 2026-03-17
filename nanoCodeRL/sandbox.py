@@ -5,10 +5,33 @@ with a timeout. Supports both assertion-based tests (HumanEval/MBPP)
 and stdin/stdout tests (CodeContests). Optionally runs inside Docker.
 """
 
+import re
 import subprocess
 import tempfile
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+
+# ---------------------------------------------------------------------------
+# Code extraction
+# ---------------------------------------------------------------------------
+
+def extract_code(completion: str) -> str:
+    """Strip markdown fences and thinking tags from a model completion.
+
+    Models almost always wrap output in ```python...``` even when instructed
+    not to, which causes SyntaxError when executed directly.
+    """
+    # Remove <think>...</think> blocks (Qwen3 thinking mode leaking into output)
+    completion = re.sub(r"<think>.*?</think>", "", completion, flags=re.DOTALL).strip()
+
+    # Extract first python code block
+    match = re.search(r"```(?:python)?\n(.*?)```", completion, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # No fences — return as-is
+    return completion.strip()
 
 
 # ---------------------------------------------------------------------------
