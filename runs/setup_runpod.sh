@@ -62,6 +62,8 @@ echo "  Dependencies installed."
 echo ""
 
 echo "  Verifying GPU..."
+# Enable persistence mode to ensure CUDA initializes correctly
+nvidia-smi -pm 1 &>/dev/null || true
 GPU_INFO=$(uv run python -c "
 import torch
 if not torch.cuda.is_available():
@@ -82,11 +84,13 @@ fi
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 3: Prefetch model & datasets
+# Step 3: Prefetch model & datasets (store on volume disk, not container)
 # ---------------------------------------------------------------------------
 echo "[3/5] Prefetching model & datasets (this may take 5-10 min)..."
-uv run python -m scripts.prefetch
-echo "  Prefetch complete."
+export HF_HOME=/workspace/.cache/huggingface
+echo 'export HF_HOME=/workspace/.cache/huggingface' >> ~/.bashrc
+uv run python -m scripts.prefetch --cache-dir /workspace/.cache/huggingface
+echo "  Prefetch complete. Assets stored in /workspace/.cache/huggingface"
 echo ""
 
 # ---------------------------------------------------------------------------
