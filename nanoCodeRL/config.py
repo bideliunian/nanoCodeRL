@@ -66,6 +66,13 @@ class Config:
     log_dir: str = "logs"
     results_dir: str = "results"
 
+    # vLLM generation (resolves OOM on RTX 5090 via PagedAttention + sleep mode)
+    # Install first: uv pip install vllm
+    # Colocate mode: vLLM and training share the GPU; sleep mode releases vLLM
+    # memory during the backward pass, preventing OOM on large rollout batches.
+    use_vllm: bool = False
+    vllm_gpu_memory_utilization: float = 0.35  # fraction of VRAM for vLLM generation
+
     # Logging
     use_wandb: bool = False
     wandb_project: str = "nanoCodeRL"

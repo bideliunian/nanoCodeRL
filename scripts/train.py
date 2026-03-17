@@ -329,6 +329,13 @@ def main():
         loss_type="dapo",
         report_to="wandb" if cfg.use_wandb else "none",
         run_name=f"nanoCodeRL-{cfg.model_name.split('/')[-1]}",
+        # vLLM: PagedAttention for generation + sleep mode frees VRAM for backward pass
+        use_vllm=cfg.use_vllm,
+        **(dict(
+            vllm_mode="colocate",
+            vllm_gpu_memory_utilization=cfg.vllm_gpu_memory_utilization,
+            vllm_enable_sleep_mode=True,
+        ) if cfg.use_vllm else {}),
     )
 
     # Build callbacks

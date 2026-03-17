@@ -56,8 +56,8 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 2: Install Python dependencies + verify GPU
 # ---------------------------------------------------------------------------
-echo "[2/5] Installing dependencies..."
-uv sync
+echo "[2/5] Installing dependencies (including vllm)..."
+uv sync --extra vllm
 echo "  Dependencies installed."
 echo ""
 
