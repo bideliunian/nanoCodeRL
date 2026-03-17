@@ -6,6 +6,7 @@
 #   2. Verify GPU
 #   3. Prefetch model & datasets
 #   4. Smoke test
+#   5. Dry-run training (2 steps) to verify VRAM & disk are sufficient
 #
 # After setup completes, run the experiment manually (see printed instructions).
 #
@@ -42,7 +43,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 1: Install uv
 # ---------------------------------------------------------------------------
-echo "[1/4] Installing uv..."
+echo "[1/5] Installing uv..."
 if ! command -v uv &> /dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
@@ -55,7 +56,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 2: Install Python dependencies + verify GPU
 # ---------------------------------------------------------------------------
-echo "[2/4] Installing dependencies..."
+echo "[2/5] Installing dependencies..."
 uv sync
 echo "  Dependencies installed."
 echo ""
@@ -67,13 +68,13 @@ if not torch.cuda.is_available():
     print('ERROR: No CUDA GPU detected!')
     exit(1)
 name = torch.cuda.get_device_name(0)
-vram = torch.cuda.get_device_properties(0).total_mem / 1e9
+vram = torch.cuda.get_device_properties(0).total_memory / 1e9
 print(f'{name} — {vram:.0f} GB VRAM')
 ")
 echo "  GPU: $GPU_INFO"
 
 # Check VRAM is sufficient
-VRAM_GB=$(uv run python -c "import torch; print(int(torch.cuda.get_device_properties(0).total_mem / 1e9))")
+VRAM_GB=$(uv run python -c "import torch; print(int(torch.cuda.get_device_properties(0).total_memory / 1e9))")
 if [[ "$VRAM_GB" -lt 24 ]]; then
     echo "  WARNING: Only ${VRAM_GB}GB VRAM detected. Minimum 24GB recommended."
     echo "  Training may OOM. Consider reducing: --batch-size 4 --num-rollouts 4 --max-length 768"
@@ -83,7 +84,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 3: Prefetch model & datasets
 # ---------------------------------------------------------------------------
-echo "[3/4] Prefetching model & datasets (this may take 5-10 min)..."
+echo "[3/5] Prefetching model & datasets (this may take 5-10 min)..."
 uv run python -m scripts.prefetch
 echo "  Prefetch complete."
 echo ""
@@ -91,9 +92,35 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 4: Smoke test
 # ---------------------------------------------------------------------------
-echo "[4/4] Running smoke test..."
+echo "[4/5] Running smoke test..."
 uv run python -m scripts.smoke_test --with-model
 echo "  Smoke test passed."
+echo ""
+
+# ---------------------------------------------------------------------------
+# Step 5: Dry-run training (2 steps)
+# ---------------------------------------------------------------------------
+echo "[5/5] Dry-run training (2 steps) — verifying VRAM, disk, and full pipeline..."
+DRY_RUN_DIR="$REPO_DIR/checkpoints/dry_run"
+uv run python -m scripts.train --steps 2 --batch-size 4 --num-rollouts 4
+
+# Show VRAM usage after dry run
+uv run python -c "
+import torch
+if torch.cuda.is_available():
+    used = torch.cuda.max_memory_allocated(0) / 1e9
+    total = torch.cuda.get_device_properties(0).total_memory / 1e9
+    pct = used / total * 100
+    print(f'  Peak VRAM usage: {used:.1f} GB / {total:.0f} GB ({pct:.0f}%)')
+"
+
+# Show disk usage
+DISK_AVAIL=$(df -h "$REPO_DIR" | awk 'NR==2 {print $4}')
+echo "  Disk available: $DISK_AVAIL"
+
+# Clean up dry-run checkpoint
+rm -rf "$DRY_RUN_DIR"
+echo "  Dry run passed — training pipeline works end to end."
 echo ""
 
 # ---------------------------------------------------------------------------
