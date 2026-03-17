@@ -9,7 +9,7 @@ Inspired by Karpathy's [nanochat](https://github.com/karpathy/nanochat).
 ## What This Does
 
 - Trains Qwen3.5-4B-Base with **DAPO** (GRPO + Clip-Higher, dynamic sampling, token-level PG, overlong reward shaping)
-- Uses **QLoRA 4-bit** to fit on a single 24GB GPU
+- Uses **QLoRA 4-bit** to fit on a single 32GB GPU (RTX 5090)
 - Reward = fraction of unit tests passed via sandboxed subprocess execution (deterministic, no reward model)
 - Evaluates on **HumanEval** and **MBPP** pass@1
 - Includes a **multi-turn agent demo**: generate → execute → observe error → revise → repeat
@@ -40,7 +40,7 @@ nanoCodeRL/
 
 ## Setup & Reproduce
 
-**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/), CUDA GPU with ≥24GB VRAM.
+**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/), CUDA GPU with ≥32GB VRAM (RTX 5090 recommended).
 
 ### One command
 
@@ -80,7 +80,7 @@ uv run python -m scripts.agent_demo --ckpt checkpoints/last --num-problems 5
 model_name           = "Qwen/Qwen3.5-4B-Base"
 load_in_4bit         = True        # QLoRA
 num_rollouts         = 8           # rollouts per prompt
-batch_size           = 16          # prompts per step
+batch_size           = 8           # prompts per step
 num_train_steps      = 200
 learning_rate        = 1e-6
 max_completion_length = 1024       # tokens

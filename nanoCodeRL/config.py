@@ -20,13 +20,13 @@ class Config:
 
     # Generation
     enable_thinking: bool = False
-    max_completion_length: int = 768  # tokens (L4 GPU: 768, larger GPUs: 1024)
+    max_completion_length: int = 1024  # tokens
     temperature: float = 0.7
     top_p: float = 0.95
 
     # DAPO / GRPO
-    num_rollouts: int = 4        # rollouts per prompt (L4 GPU: 4, larger GPUs: 8)
-    batch_size: int = 4         # prompts per step (L4 GPU: 4, larger GPUs: 16)
+    num_rollouts: int = 8        # rollouts per prompt
+    batch_size: int = 8          # prompts per step (RTX 5090 32GB; use 16 on A100 80GB)
     num_train_steps: int = 200
     learning_rate: float = 1e-6
     lr_scheduler: str = "cosine"
