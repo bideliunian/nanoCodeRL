@@ -96,7 +96,9 @@ def get_test_cases(problem: dict, source: str) -> list[str] | list[dict]:
       - list[dict] with {"input": ..., "output": ...} for stdin/stdout tests
     """
     if source == "humaneval":
-        return [problem["test"]]
+        # HumanEval test field defines check(candidate) but doesn't call it
+        test_code = problem["test"] + f"\ncheck({problem['entry_point']})\n"
+        return [test_code]
     elif source == "mbpp":
         return problem.get("test_list", [])
     elif source == "code_contests":
