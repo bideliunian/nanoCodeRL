@@ -1148,12 +1148,13 @@ dependencies = [
     { name = "torch" },
     { name = "transformers" },
     { name = "trl" },
+    { name = "unsloth" },
     { name = "wandb" },
 ]
 
 [package.optional-dependencies]
-unsloth = [
-    { name = "unsloth" },
+dev = [
+    { name = "pytest" },
 ]
 
 [package.dev-dependencies]
@@ -1163,18 +1164,19 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate" },
-    { name = "bitsandbytes" },
-    { name = "datasets" },
-    { name = "huggingface-hub", extras = ["cli"], specifier = ">=1.6.0" },
-    { name = "peft" },
+    { name = "accelerate", specifier = ">=0.20.0" },
+    { name = "bitsandbytes", specifier = ">=0.41.0" },
+    { name = "datasets", specifier = ">=2.0.0" },
+    { name = "huggingface-hub", extras = ["cli"], specifier = ">=0.20.0" },
+    { name = "peft", specifier = ">=0.12.0" },
+    { name = "pytest", marker = "extra == 'dev'" },
     { name = "torch", specifier = ">=2.2.0" },
     { name = "transformers", specifier = ">=4.51.0" },
     { name = "trl", specifier = ">=0.17.0" },
-    { name = "unsloth", marker = "extra == 'unsloth'" },
-    { name = "wandb" },
+    { name = "unsloth", specifier = ">=2024.0.0" },
+    { name = "wandb", specifier = ">=0.15.0" },
 ]
-provides-extras = ["unsloth"]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest" }]

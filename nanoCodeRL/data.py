@@ -20,6 +20,43 @@ SYSTEM_PROMPT_IO = (
 )
 
 
+def build_messages(user_prompt: str, source: str) -> list[dict]:
+    """Build chat messages for the instruct model.
+
+    Returns a list of message dicts suitable for ``tokenizer.apply_chat_template``.
+    """
+    sys = SYSTEM_PROMPT_IO if source == "code_contests" else SYSTEM_PROMPT
+    return [
+        {"role": "system", "content": sys},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def apply_chat_template(tokenizer, messages: list[dict], enable_thinking: bool = False) -> str:
+    """Apply the tokenizer's chat template to messages, returning a string prompt.
+
+    Args:
+        tokenizer: HuggingFace tokenizer with ``apply_chat_template``.
+        messages: List of message dicts (role/content).
+        enable_thinking: Whether to enable Qwen3.5's thinking mode (generates
+            very long chains-of-thought; disabled by default for RL training).
+    """
+    try:
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=enable_thinking,
+        )
+    except TypeError:
+        # Fallback for tokenizers that don't support enable_thinking kwarg
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Prompt formatting
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from nanoCodeRL.config import Config
-from nanoCodeRL.data import load_humaneval, SYSTEM_PROMPT
+from nanoCodeRL.data import load_humaneval, SYSTEM_PROMPT, build_messages, apply_chat_template
 from nanoCodeRL.sandbox import compute_reward
 
 
@@ -46,12 +46,9 @@ def load_agent_model(cfg: Config, ckpt: str | None):
 
 
 def generate(model, tokenizer, messages: list[dict], cfg: Config) -> str:
-    """Generate a response given a conversation history."""
-    text = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True,
-        enable_thinking=cfg.enable_thinking,
-    )
-    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    """Generate a response given chat messages."""
+    prompt_text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(
@@ -76,10 +73,8 @@ def agent_loop(
     print(f"{'='*60}")
     print(problem["prompt"])
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": problem["prompt"]},
-    ]
+    # Build initial messages for chat template
+    messages = build_messages(problem["prompt"], problem["source"])
 
     history = []
 
@@ -125,6 +120,7 @@ def agent_loop(
                 f"Please fix the code and try again. Output only the corrected function."
             )
 
+            # Accumulate multi-turn conversation via chat messages
             messages.append({"role": "assistant", "content": completion})
             messages.append({"role": "user", "content": revision_prompt})
             print(f"Error: {error_feedback[:200]}")

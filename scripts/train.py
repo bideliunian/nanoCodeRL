@@ -1,4 +1,4 @@
-"""nanoCodeRL training script — DAPO coding RL on Qwen3.5-4B-Base.
+"""nanoCodeRL training script — DAPO coding RL on Qwen3.5-4B.
 
 Usage:
     python -m scripts.train
@@ -15,7 +15,7 @@ from transformers import AutoTokenizer, TrainerCallback
 from trl import GRPOConfig, GRPOTrainer
 
 from nanoCodeRL.config import Config
-from nanoCodeRL.data import load_training_data, load_eval_data, SYSTEM_PROMPT, SYSTEM_PROMPT_IO
+from nanoCodeRL.data import load_training_data, load_eval_data, build_messages, apply_chat_template
 from nanoCodeRL.sandbox import compute_reward, compute_rewards_parallel
 
 
@@ -80,9 +80,9 @@ def build_reward_fn(cfg: Config):
     """Build the reward function for GRPO training with parallel sandbox execution."""
     _problem_cache = {}
 
-    def register_problems(problems: list[dict]):
-        for p in problems:
-            _problem_cache[p["prompt"]] = p
+    def register_problem(key: str, problem: dict):
+        """Register a problem keyed by its templated prompt string."""
+        _problem_cache[key] = problem
 
     def reward_fn(completions: list[str], prompts: list[str], **kwargs) -> list[float]:
         # Build tasks for parallel execution
@@ -94,7 +94,7 @@ def build_reward_fn(cfg: Config):
                 continue
 
             if problem["source"] == "humaneval":
-                code = prompt + completion
+                code = problem["prompt"] + completion
             else:
                 code = completion
 
@@ -107,27 +107,24 @@ def build_reward_fn(cfg: Config):
             use_docker=cfg.use_docker_sandbox,
         )
 
-    return reward_fn, register_problems
+    return reward_fn, register_problem
 
 
-def prepare_dataset(problems: list[dict], tokenizer) -> list[dict]:
-    """Convert problems into the format expected by GRPOTrainer."""
+def prepare_dataset(problems: list[dict], tokenizer, register_problem_fn,
+                    cfg: Config) -> list[dict]:
+    """Convert problems into the format expected by GRPOTrainer.
+
+    Applies the chat template to build prompt strings and registers each
+    templated prompt in the reward cache so ``reward_fn`` can look up the
+    original problem when TRL passes the prompt back.
+    """
     dataset = []
     for p in problems:
-        sys_prompt = SYSTEM_PROMPT_IO if p["source"] == "code_contests" else SYSTEM_PROMPT
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": p["prompt"]},
-        ]
-        # Apply chat template ourselves and pass as text string to avoid TRL trying to apply it
-        try:
-            prompt_text = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        except Exception:
-            # Fallback if no chat template: simple concatenation
-            prompt_text = f"{sys_prompt}\n\n{p['prompt']}"
-
+        messages = build_messages(p["prompt"], p["source"])
+        prompt_text = apply_chat_template(
+            tokenizer, messages, enable_thinking=cfg.enable_thinking,
+        )
+        register_problem_fn(prompt_text, p)
         dataset.append({"prompt": prompt_text})
     return dataset
 
@@ -161,14 +158,9 @@ class IntermediateEvalCallback(TrainerCallback):
         return all_problems
 
     def _generate_solution(self, prompt: str, source: str) -> str:
-        sys_prompt = SYSTEM_PROMPT_IO if source == "code_contests" else SYSTEM_PROMPT
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": prompt},
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-            enable_thinking=self.cfg.enable_thinking,
+        messages = build_messages(prompt, source)
+        text = apply_chat_template(
+            self.tokenizer, messages, enable_thinking=self.cfg.enable_thinking,
         )
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
 
@@ -299,11 +291,10 @@ def main():
         model.warnings_issued = {}
 
     # Build reward function
-    reward_fn, register_problems = build_reward_fn(cfg)
-    register_problems(problems)
+    reward_fn, register_problem = build_reward_fn(cfg)
 
-    # Prepare dataset
-    dataset = prepare_dataset(problems, tokenizer)
+    # Prepare dataset (applies chat template and registers prompts in reward cache)
+    dataset = prepare_dataset(problems, tokenizer, register_problem, cfg)
 
     # Configure GRPO with DAPO settings
     training_config = GRPOConfig(

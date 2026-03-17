@@ -15,7 +15,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from nanoCodeRL.config import Config
-from nanoCodeRL.data import load_eval_data, SYSTEM_PROMPT
+from nanoCodeRL.data import load_eval_data, build_messages, apply_chat_template
 from nanoCodeRL.sandbox import compute_reward
 
 
@@ -86,16 +86,11 @@ def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
     return model, tokenizer
 
 
-def generate_solution(model, tokenizer, prompt: str, cfg: Config) -> str:
+def generate_solution(model, tokenizer, prompt: str, cfg: Config,
+                      source: str = "humaneval") -> str:
     """Generate a code solution for a given prompt."""
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-    text = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True,
-        enable_thinking=cfg.enable_thinking,
-    )
+    messages = build_messages(prompt, source)
+    text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
@@ -124,7 +119,9 @@ def evaluate_benchmark(
     print(f"\nEvaluating {benchmark_name} ({total} problems)...")
 
     for i, problem in enumerate(problems):
-        completion = generate_solution(model, tokenizer, problem["prompt"], cfg)
+        completion = generate_solution(
+            model, tokenizer, problem["prompt"], cfg, source=problem["source"]
+        )
 
         if problem["source"] == "humaneval":
             full_code = problem["prompt"] + completion

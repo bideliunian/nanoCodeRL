@@ -1,6 +1,6 @@
 # nanoCodeRL
 
-A minimal, reproducible RL pipeline for training a coding agent using [DAPO](https://arxiv.org/abs/2503.14476) on [Qwen3.5-4B-Base](https://huggingface.co/Qwen/Qwen3.5-4B-Base) — from base model weights to an iterative coding agent on a single GPU.
+A minimal, reproducible RL pipeline for training a coding agent using [DAPO](https://arxiv.org/abs/2503.14476) on [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) — from base model weights to an iterative coding agent on a single GPU.
 
 Inspired by Karpathy's [nanochat](https://github.com/karpathy/nanochat).
 
@@ -8,7 +8,7 @@ Inspired by Karpathy's [nanochat](https://github.com/karpathy/nanochat).
 
 ## What This Does
 
-- Trains Qwen3.5-4B-Base with **DAPO** (GRPO + Clip-Higher, dynamic sampling, token-level PG, overlong reward shaping)
+- Trains Qwen3.5-4B with **DAPO** (GRPO + Clip-Higher, dynamic sampling, token-level PG, overlong reward shaping)
 - Uses **QLoRA 4-bit** to fit on a single 32GB GPU (RTX 5090)
 - Reward = fraction of unit tests passed via sandboxed subprocess execution (deterministic, no reward model)
 - Evaluates on **HumanEval** and **MBPP** pass@1
@@ -77,7 +77,7 @@ uv run python -m scripts.agent_demo --ckpt checkpoints/last --num-problems 5
 ### Key config (see `nanoCodeRL/config.py`)
 
 ```python
-model_name           = "Qwen/Qwen3.5-4B-Base"
+model_name           = "Qwen/Qwen3.5-4B"
 load_in_4bit         = True        # QLoRA
 num_rollouts         = 8           # rollouts per prompt
 batch_size           = 8           # prompts per step
@@ -91,7 +91,7 @@ max_completion_length = 1024       # tokens
 ## References
 
 - [DAPO (arXiv:2503.14476)](https://arxiv.org/abs/2503.14476)
-- [Qwen3.5-4B-Base](https://huggingface.co/Qwen/Qwen3.5-4B-Base)
+- [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B)
 - [TRL GRPOTrainer](https://huggingface.co/docs/trl/grpo_trainer)
 - [HumanEval](https://github.com/openai/human-eval) / [MBPP](https://huggingface.co/datasets/google-research-datasets/mbpp)
 - [nanochat](https://github.com/karpathy/nanochat)

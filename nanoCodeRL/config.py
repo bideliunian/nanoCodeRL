@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 @dataclass
 class Config:
     # Model
-    model_name: str = "Qwen/Qwen3.5-4B-Base"
+    model_name: str = "Qwen/Qwen3.5-4B"
     load_in_4bit: bool = True  # QLoRA; set False for full BF16 on A100
 
     # LoRA

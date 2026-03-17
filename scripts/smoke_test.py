@@ -77,7 +77,7 @@ def test_config():
     print("[4/5] Testing config...")
     from nanoCodeRL.config import Config
     cfg = Config()
-    assert cfg.model_name == "Qwen/Qwen3.5-4B-Base"
+    assert cfg.model_name == "Qwen/Qwen3.5-4B"
     assert cfg.num_rollouts > 0
     assert cfg.batch_size > 0
     assert 0 < cfg.clip_eps < cfg.clip_eps_high
