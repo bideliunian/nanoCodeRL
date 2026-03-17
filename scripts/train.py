@@ -85,6 +85,9 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
     # Index problems by their integer position
     _problems = list(problems)
 
+    _debug = os.environ.get("REWARD_DEBUG", "0") == "1"
+    _step = [0]
+
     def reward_fn(completions: list[str], problem_idx: list[int], **kwargs) -> list[float]:
         tasks = []
         for completion, idx in zip(completions, problem_idx):
@@ -98,12 +101,25 @@ def build_reward_fn(cfg: Config, problems: list[dict]):
 
             tasks.append((code, problem["test_cases"]))
 
-        return compute_rewards_parallel(
+        rewards = compute_rewards_parallel(
             tasks,
             timeout=cfg.sandbox_timeout,
             max_workers=cfg.sandbox_max_workers,
             use_docker=cfg.use_docker_sandbox,
         )
+
+        if _debug:
+            _step[0] += 1
+            print(f"\n=== REWARD_DEBUG step {_step[0]} ===")
+            for i, (completion, idx, reward) in enumerate(zip(completions, problem_idx, rewards)):
+                problem = _problems[idx]
+                clean = extract_code(completion)
+                print(f"  [{i}] task={problem['task_id']} reward={reward:.2f} "
+                      f"raw_len={len(completion)} clean_len={len(clean)}")
+                print(f"       raw[:120]:   {repr(completion[:120])}")
+                print(f"       clean[:120]: {repr(clean[:120])}")
+
+        return rewards
 
     return reward_fn
 
