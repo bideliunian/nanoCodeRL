@@ -26,9 +26,12 @@ class Config:
     top_p: float = 0.95
 
     # DAPO / GRPO
-    num_rollouts: int = 8        # rollouts per prompt
-    batch_size: int = 2          # prompts per micro-batch (RTX 5090 32GB; use 8+ on A100 80GB)
-    gradient_accumulation_steps: int = 4  # effective batch = 2 × 4 = 8 prompts per update
+    num_rollouts: int = 8        # rollouts per prompt (must equal batch_size for TRL)
+    # In TRL GRPO, batch_size = completions per micro-batch (not prompts).
+    # Unique prompts per update = batch_size * grad_accum / num_rollouts.
+    # With 8×4/8 = 4 unique prompts per optimizer step.
+    batch_size: int = 8          # must equal num_rollouts (TRL constraint)
+    gradient_accumulation_steps: int = 4  # 4 prompts per update (8*4/8=4)
     num_train_steps: int = 200
     learning_rate: float = 1e-6
     lr_scheduler: str = "cosine"

@@ -106,7 +106,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "[5/5] Dry-run training (2 steps) — verifying VRAM, disk, and full pipeline..."
 DRY_RUN_DIR="$REPO_DIR/checkpoints/dry_run"
-uv run python -m scripts.train --steps 2 --batch-size 2 --num-rollouts 4 --grad-accum 1
+uv run python -m scripts.train --steps 2
 
 # Show VRAM usage after dry run
 uv run python -c "
