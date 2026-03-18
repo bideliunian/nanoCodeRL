@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
-vllm = ["vllm>=0.8.0"]
+vllm = ["vllm==0.10.2"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
