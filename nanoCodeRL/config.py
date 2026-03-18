@@ -27,7 +27,8 @@ class Config:
 
     # DAPO / GRPO
     num_rollouts: int = 8        # rollouts per prompt
-    batch_size: int = 8          # prompts per step (RTX 5090 32GB; use 16 on A100 80GB)
+    batch_size: int = 2          # prompts per micro-batch (RTX 5090 32GB; use 8+ on A100 80GB)
+    gradient_accumulation_steps: int = 4  # effective batch = 2 × 4 = 8 prompts per update
     num_train_steps: int = 200
     learning_rate: float = 1e-6
     lr_scheduler: str = "cosine"

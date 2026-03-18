@@ -322,6 +322,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=None, help="Override batch_size")
     parser.add_argument("--num-rollouts", type=int, default=None, help="Override num_rollouts")
     parser.add_argument("--max-length", type=int, default=None, help="Override max_completion_length")
+    parser.add_argument("--grad-accum", type=int, default=None, help="Override gradient_accumulation_steps")
     args = parser.parse_args()
 
     cfg = Config()
@@ -339,6 +340,8 @@ def main():
         cfg.num_rollouts = args.num_rollouts
     if args.max_length:
         cfg.max_completion_length = args.max_length
+    if args.grad_accum:
+        cfg.gradient_accumulation_steps = args.grad_accum
 
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
     os.makedirs(cfg.log_dir, exist_ok=True)
@@ -381,6 +384,7 @@ def main():
         num_train_epochs=1,
         max_steps=cfg.num_train_steps,
         per_device_train_batch_size=cfg.batch_size,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         num_generations=cfg.num_rollouts,
         max_completion_length=cfg.max_completion_length,
         max_prompt_length=cfg.max_prompt_length,
@@ -390,6 +394,7 @@ def main():
         logging_steps=1,
         save_steps=cfg.eval_every_n_steps,
         bf16=True,
+        gradient_checkpointing=True,
         loss_type="dapo",
         # DAPO Clip-Higher: asymmetric clipping encourages exploration on good samples
         epsilon=cfg.clip_eps,           # lower bound (standard PPO clip)

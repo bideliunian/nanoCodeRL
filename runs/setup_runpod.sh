@@ -79,7 +79,7 @@ echo "  GPU: $GPU_INFO"
 VRAM_GB=$(uv run python -c "import torch; print(int(torch.cuda.get_device_properties(0).total_memory / 1e9))")
 if [[ "$VRAM_GB" -lt 24 ]]; then
     echo "  WARNING: Only ${VRAM_GB}GB VRAM detected. Minimum 24GB recommended."
-    echo "  Training may OOM. Consider reducing: --batch-size 4 --num-rollouts 4 --max-length 768"
+    echo "  Training may OOM. Consider reducing: --batch-size 1 --num-rollouts 4 --max-length 768"
 fi
 echo ""
 
@@ -106,7 +106,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "[5/5] Dry-run training (2 steps) — verifying VRAM, disk, and full pipeline..."
 DRY_RUN_DIR="$REPO_DIR/checkpoints/dry_run"
-uv run python -m scripts.train --steps 2 --batch-size 4 --num-rollouts 4
+uv run python -m scripts.train --steps 2 --batch-size 2 --num-rollouts 4 --grad-accum 1
 
 # Show VRAM usage after dry run
 uv run python -c "
