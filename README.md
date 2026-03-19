@@ -88,6 +88,22 @@ max_completion_length = 1024       # tokens
 
 ---
 
+## Results
+
+Trained on CodeContests (stdin/stdout) with DAPO, evaluated on HumanEval and MBPP (held-out). Single A100 GPU, QLoRA 4-bit, batch_size=8, num_rollouts=8.
+
+| Benchmark | Baseline | Step 50 | Step 100 |
+|-----------|----------|---------|----------|
+| HumanEval pass@1 | 75.0% | **76.8%** (+1.8) | **76.8%** (+1.8) |
+| MBPP pass@1 | **53.7%** | 52.1% (-1.6) | 47.5% (-6.2) |
+
+**Takeaways:**
+- HumanEval improves modestly and plateaus by step 50.
+- MBPP degrades with continued training — the model overfits to CodeContests' stdin/stdout format at the expense of MBPP's function-assertion style.
+- **Step 50 is the best checkpoint** balancing both benchmarks.
+
+---
+
 ## References
 
 - [DAPO (arXiv:2503.14476)](https://arxiv.org/abs/2503.14476)
