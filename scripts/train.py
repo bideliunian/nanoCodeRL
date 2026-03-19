@@ -236,7 +236,8 @@ class IntermediateEvalCallback(TrainerCallback):
         text = apply_chat_template(
             self.tokenizer, messages, enable_thinking=self.cfg.enable_thinking,
         )
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+        _tok = getattr(self.tokenizer, "tokenizer", self.tokenizer)
+        inputs = _tok(text, return_tensors="pt").to(self.model.device)
 
         with torch.no_grad():
             outputs = self.model.generate(
@@ -394,7 +395,7 @@ def main():
         logging_steps=1,
         save_steps=cfg.eval_every_n_steps,
         bf16=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         loss_type="dapo",
         # DAPO Clip-Higher: asymmetric clipping encourages exploration on good samples
         epsilon=cfg.clip_eps,           # lower bound (standard PPO clip)

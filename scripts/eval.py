@@ -91,7 +91,10 @@ def generate_solution(model, tokenizer, prompt: str, cfg: Config,
     """Generate a code solution for a given prompt."""
     messages = build_messages(prompt, source)
     text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
-    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+    # Qwen3.5 is a VLM: Unsloth patches the processor __call__ to handle images,
+    # which breaks text-only tokenization. Use the underlying text tokenizer directly.
+    _tok = getattr(tokenizer, "tokenizer", tokenizer)
+    inputs = _tok(text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(

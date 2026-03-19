@@ -29,9 +29,9 @@ class Config:
     num_rollouts: int = 8        # rollouts per prompt (must equal batch_size for TRL)
     # In TRL GRPO, batch_size = completions per micro-batch (not prompts).
     # Unique prompts per update = batch_size * grad_accum / num_rollouts.
-    # With 8×4/8 = 4 unique prompts per optimizer step.
+    # With 8×1/8 = 1 unique prompt per optimizer step.
     batch_size: int = 8          # must equal num_rollouts (TRL constraint)
-    gradient_accumulation_steps: int = 4  # 4 prompts per update (8*4/8=4)
+    gradient_accumulation_steps: int = 1
     num_train_steps: int = 200
     learning_rate: float = 1e-6
     lr_scheduler: str = "cosine"

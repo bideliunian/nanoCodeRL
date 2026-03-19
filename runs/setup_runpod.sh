@@ -53,17 +53,23 @@ fi
 echo "  uv $(uv --version) installed."
 echo ""
 
+
 # ---------------------------------------------------------------------------
 # Step 2: Install Python dependencies + verify GPU
 # ---------------------------------------------------------------------------
+# python3.10-dev is required for Triton to compile CUDA kernels (Python.h)
+echo "  Installing system dependencies..."
+apt-get update -qq && apt-get install -y python3.10-dev -qq
+
 echo "[2/5] Installing dependencies (including vllm)..."
 uv sync --extra vllm
 echo "  Dependencies installed."
 echo ""
 
 echo "  Verifying GPU..."
-# Enable persistence mode to ensure CUDA initializes correctly
+# Enable persistence mode and wait for CUDA driver to fully initialize
 nvidia-smi -pm 1 &>/dev/null || true
+sleep 3
 GPU_INFO=$(uv run python -c "
 import torch
 if not torch.cuda.is_available():
@@ -87,10 +93,8 @@ echo ""
 # Step 3: Prefetch model & datasets (store on volume disk, not container)
 # ---------------------------------------------------------------------------
 echo "[3/5] Prefetching model & datasets (this may take 5-10 min)..."
-export HF_HOME=/workspace/.cache/huggingface
-echo 'export HF_HOME=/workspace/.cache/huggingface' >> ~/.bashrc
-uv run python -m scripts.prefetch --cache-dir /workspace/.cache/huggingface
-echo "  Prefetch complete. Assets stored in /workspace/.cache/huggingface"
+uv run python -m scripts.prefetch
+echo "  Prefetch complete. Assets stored in ~/.cache/huggingface (container disk)"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -104,9 +108,12 @@ echo ""
 # ---------------------------------------------------------------------------
 # Step 5: Dry-run training (2 steps)
 # ---------------------------------------------------------------------------
-echo "[5/5] Dry-run training (2 steps) — verifying VRAM, disk, and full pipeline..."
+# This step also pre-warms the Triton/Inductor kernel cache (~15 min first time,
+# instant on subsequent runs because cache is on the persistent volume).
+echo "[5/5] Dry-run training (2 steps) — pre-warming kernel cache + verifying pipeline..."
+echo "  First run compiles Triton kernels (~15 min). Subsequent runs will be instant."
 DRY_RUN_DIR="$REPO_DIR/checkpoints/dry_run"
-uv run python -m scripts.train --steps 2
+uv run python -m scripts.train --steps 2 --batch-size 4 --num-rollouts 4 --grad-accum 1
 
 # Show VRAM usage after dry run
 uv run python -c "
