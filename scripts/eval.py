@@ -9,7 +9,6 @@ Usage:
 import argparse
 import json
 import os
-import time
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -31,7 +30,7 @@ def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
             )
             FastLanguageModel.for_inference(model)
             print(f"Loaded checkpoint from {ckpt} via Unsloth")
-        except ImportError:
+        except (ImportError, NotImplementedError):
             from peft import PeftModel
             base_model = AutoModelForCausalLM.from_pretrained(
                 model_name,
@@ -52,7 +51,7 @@ def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
                 load_in_4bit=cfg.load_in_4bit,
             )
             FastLanguageModel.for_inference(model)
-        except ImportError:
+        except (ImportError, NotImplementedError):
             if torch.cuda.is_available() and cfg.load_in_4bit:
                 from transformers import BitsAndBytesConfig
                 bnb_config = BitsAndBytesConfig(
@@ -80,46 +79,73 @@ def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
     return model, tokenizer
 
 
-def generate_solution(model, tokenizer, prompt: str, cfg: Config,
-                      source: str = "humaneval") -> str:
-    """Generate a code solution for a given prompt."""
-    messages = build_messages(prompt, source)
-    text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
-    # Qwen3.5 is a VLM: Unsloth patches the processor __call__ to handle images,
-    # which breaks text-only tokenization. Use the underlying text tokenizer directly.
+def generate_solutions_batch(
+    model, tokenizer, problems: list[dict], cfg: Config, batch_size: int = 8,
+) -> list[str]:
+    """Generate code solutions for a list of problems using batched inference.
+
+    Left-pads prompts so shorter sequences don't waste compute. Returns one
+    completion string per problem, in the same order as the input list.
+    """
     _tok = getattr(tokenizer, "tokenizer", tokenizer)
-    inputs = _tok(text, return_tensors="pt").to(model.device)
+    # Ensure left-padding for batched generation (decoder-only models)
+    original_side = _tok.padding_side
+    _tok.padding_side = "left"
+    if _tok.pad_token_id is None:
+        _tok.pad_token_id = _tok.eos_token_id
 
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=cfg.max_completion_length,
-            temperature=cfg.temperature,
-            top_p=cfg.top_p,
-            do_sample=True,
-            pad_token_id=tokenizer.pad_token_id,
-        )
+    # Build all prompt texts
+    prompt_texts = []
+    for p in problems:
+        messages = build_messages(p["prompt"], p["source"])
+        text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
+        prompt_texts.append(text)
 
-    new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
-    completion = tokenizer.decode(new_tokens, skip_special_tokens=True)
-    return completion
+    completions = []
+    for start in range(0, len(prompt_texts), batch_size):
+        batch_texts = prompt_texts[start : start + batch_size]
+        inputs = _tok(
+            batch_texts, return_tensors="pt", padding=True, truncation=True,
+        ).to(model.device)
+
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=cfg.max_completion_length,
+                temperature=cfg.temperature,
+                top_p=cfg.top_p,
+                do_sample=True,
+                pad_token_id=_tok.pad_token_id,
+            )
+
+        # Decode only the newly generated tokens for each sequence
+        for j, output_ids in enumerate(outputs):
+            prompt_len = inputs["input_ids"].shape[1]
+            new_tokens = output_ids[prompt_len:]
+            completion = tokenizer.decode(new_tokens, skip_special_tokens=True)
+            completions.append(completion)
+
+    _tok.padding_side = original_side
+    return completions
 
 
 def evaluate_benchmark(
     model, tokenizer, problems: list[dict], cfg: Config, benchmark_name: str,
+    batch_size: int = 8,
 ) -> dict:
-    """Evaluate pass@1 on a set of problems."""
-    passed = 0
+    """Evaluate pass@1 on a set of problems with batched generation."""
     total = len(problems)
+    print(f"\nEvaluating {benchmark_name} ({total} problems, batch_size={batch_size})...")
+
+    # Batched generation for all problems at once
+    completions = generate_solutions_batch(
+        model, tokenizer, problems, cfg, batch_size=batch_size,
+    )
+
+    # Score completions (sandbox execution)
+    passed = 0
     results = []
-
-    print(f"\nEvaluating {benchmark_name} ({total} problems)...")
-
-    for i, problem in enumerate(problems):
-        completion = generate_solution(
-            model, tokenizer, problem["prompt"], cfg, source=problem["source"]
-        )
-
+    for i, (problem, completion) in enumerate(zip(problems, completions)):
         clean = extract_code(completion)
         if problem["source"] == "humaneval":
             full_code = problem["prompt"] + clean
@@ -166,6 +192,7 @@ def main():
         help="Benchmarks to evaluate (humaneval, mbpp)",
     )
     parser.add_argument("--output", type=str, default=None, help="Output JSON path")
+    parser.add_argument("--batch-size", type=int, default=8, help="Batch size for generation")
     args = parser.parse_args()
 
     cfg = Config()
@@ -179,7 +206,8 @@ def main():
     all_results = {}
     for bench in args.bench:
         problems = load_eval_data([bench])
-        result = evaluate_benchmark(model, tokenizer, problems, cfg, bench)
+        result = evaluate_benchmark(model, tokenizer, problems, cfg, bench,
+                                    batch_size=args.batch_size)
         all_results[bench] = result
 
     # Save results
