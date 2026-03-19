@@ -16,7 +16,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from nanoCodeRL.config import Config
 from nanoCodeRL.data import load_eval_data, build_messages, apply_chat_template
-from nanoCodeRL.sandbox import compute_reward
+from nanoCodeRL.sandbox import compute_reward, extract_code
 
 
 def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
@@ -120,10 +120,11 @@ def evaluate_benchmark(
             model, tokenizer, problem["prompt"], cfg, source=problem["source"]
         )
 
+        clean = extract_code(completion)
         if problem["source"] == "humaneval":
-            full_code = problem["prompt"] + completion
+            full_code = problem["prompt"] + clean
         else:
-            full_code = completion
+            full_code = clean
 
         result = compute_reward(
             code=full_code,

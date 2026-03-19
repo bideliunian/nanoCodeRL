@@ -21,13 +21,19 @@ def test_reward_lookup():
 
     reward_fn = build_reward_fn(cfg, problems)
 
-    # HumanEval/0: has_close_elements — use a known-correct solution
+    # HumanEval/0: has_close_elements — use a known-correct solution.
+    # Real model completions are markdown-fenced complete functions. The reward
+    # function calls extract_code() to strip fences, then does prompt + clean.
+    # The second def overrides the prompt's stub, so the test calls the model's version.
     correct_completion = (
+        "```python\n"
+        "def has_close_elements(numbers, threshold):\n"
         "    for i, n1 in enumerate(numbers):\n"
         "        for j, n2 in enumerate(numbers):\n"
         "            if i != j and abs(n1 - n2) < threshold:\n"
         "                return True\n"
         "    return False\n"
+        "```"
     )
 
     # Test 1: Correct solution should get reward > 0
@@ -39,7 +45,7 @@ def test_reward_lookup():
     assert rewards[0] == 1.0, f"Expected reward 1.0, got {rewards[0]}"
 
     # Test 2: Broken solution should get reward 0
-    broken_completion = "    return 'wrong'\n"
+    broken_completion = "```python\ndef has_close_elements(numbers, threshold):\n    return 'wrong'\n```"
     rewards = reward_fn(
         completions=[broken_completion],
         problem_idx=[0],
@@ -71,6 +77,7 @@ def test_markdown_extraction():
     # Same correct solution but wrapped in markdown fences (as models actually output)
     markdown_completion = (
         "```python\n"
+        "def has_close_elements(numbers, threshold):\n"
         "    for i, n1 in enumerate(numbers):\n"
         "        for j, n2 in enumerate(numbers):\n"
         "            if i != j and abs(n1 - n2) < threshold:\n"
