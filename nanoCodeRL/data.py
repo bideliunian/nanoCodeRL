@@ -152,7 +152,7 @@ def load_mbpp(split: str = "train") -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def load_code_contests(split: str = "train", max_problems: int | None = None,
-                       min_tests: int = 2, max_difficulty: int | None = 3,
+                       min_tests: int = 2, max_difficulty: int | None = 7,
                        max_solution_chars: int | None = 800) -> list[dict]:
     """Load CodeContests dataset for training (stdin/stdout format).
 
@@ -233,7 +233,7 @@ def load_training_data(benchmarks: list[str] | None = None, **kwargs) -> list[di
         if bench == "code_contests":
             problems.extend(load_code_contests(
                 split="train",
-                max_difficulty=kwargs.get("max_difficulty", 3),
+                max_difficulty=kwargs.get("max_difficulty", 7),
                 max_solution_chars=kwargs.get("max_solution_chars", 800),
             ))
         elif bench == "mbpp_full":

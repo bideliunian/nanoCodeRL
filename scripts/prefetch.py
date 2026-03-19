@@ -52,7 +52,7 @@ def main():
     print("[4/4] Downloading model weights (this may take a while)...")
     from transformers import AutoModelForCausalLM
     AutoModelForCausalLM.from_pretrained(
-        cfg.model_name, trust_remote_code=True, dtype="auto",
+        cfg.model_name, trust_remote_code=True, torch_dtype="auto",
     )
     print(f"  Model cached: {cfg.model_name}\n")
 

@@ -20,17 +20,17 @@ class Config:
 
     # Generation
     enable_thinking: bool = False
-    max_completion_length: int = 2048  # tokens (RTX 5090 32GB)
+    max_completion_length: int = 2048
     max_prompt_length: int = 1024     # truncate long problem descriptions from the end
     temperature: float = 0.7
     top_p: float = 0.95
 
     # DAPO / GRPO
-    num_rollouts: int = 8        # rollouts per prompt (must equal batch_size for TRL)
+    num_rollouts: int = 8        # rollouts per prompt
     # In TRL GRPO, batch_size = completions per micro-batch (not prompts).
     # Unique prompts per update = batch_size * grad_accum / num_rollouts.
-    # With 8×1/8 = 1 unique prompt per optimizer step.
-    batch_size: int = 8          # must equal num_rollouts (TRL constraint)
+    batch_size: int = 8
+
     gradient_accumulation_steps: int = 1
     num_train_steps: int = 200
     learning_rate: float = 1e-6
@@ -71,7 +71,7 @@ class Config:
     log_dir: str = "logs"
     results_dir: str = "results"
 
-    # vLLM generation (resolves OOM on RTX 5090 via PagedAttention + sleep mode)
+    # vLLM generation (PagedAttention + sleep mode to reduce VRAM during backward pass)
     # Install first: uv pip install vllm
     # Colocate mode: vLLM and training share the GPU; sleep mode releases vLLM
     # memory during the backward pass, preventing OOM on large rollout batches.

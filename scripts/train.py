@@ -8,6 +8,7 @@ Usage:
 import argparse
 import json
 import os
+import random
 import time
 
 import torch
@@ -194,7 +195,6 @@ class DynamicSampler(torch.utils.data.Sampler):
 
         # Shuffle active pool; occasionally inject inactive problems so they can recover
         order = active.copy()
-        import random
         random.shuffle(order)
         for idx in inactive:
             if random.random() < self.deprioritize_prob:
@@ -421,8 +421,6 @@ def main():
     # DAPO dynamic sampling: build filtered dataset using DynamicSampler.
     # DynamicSampler reads zero_var_counts from reward_fn after each step.
     # On the first run the counts are all 0, so all problems are included.
-    # Re-run with --filter-zero-var after a warm-up run to exclude problems
-    # where the model consistently gets zero-variance rewards (all-pass/all-fail).
     dynamic_sampler = DynamicSampler(dataset, reward_fn)
     filtered_indices = list(dynamic_sampler)
     filtered_dataset = [dataset[i] for i in filtered_indices]

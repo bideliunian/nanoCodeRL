@@ -48,7 +48,8 @@ def load_agent_model(cfg: Config, ckpt: str | None):
 def generate(model, tokenizer, messages: list[dict], cfg: Config) -> str:
     """Generate a response given chat messages."""
     prompt_text = apply_chat_template(tokenizer, messages, enable_thinking=cfg.enable_thinking)
-    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+    _tok = getattr(tokenizer, "tokenizer", tokenizer)
+    inputs = _tok(prompt_text, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         outputs = model.generate(

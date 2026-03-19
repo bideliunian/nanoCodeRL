@@ -1,5 +1,5 @@
 #!/bin/bash
-# nanoCodeRL — RunPod environment setup script (RTX 5090)
+# nanoCodeRL — RunPod environment setup script
 #
 # Sets up everything needed on a fresh RunPod pod:
 #   1. Install uv + dependencies
@@ -34,7 +34,7 @@ fi
 cd "$REPO_DIR"
 
 echo "============================================"
-echo "  nanoCodeRL — RunPod Setup (RTX 5090)"
+echo "  nanoCodeRL — RunPod Setup"
 echo "============================================"
 echo ""
 echo "  Repo: $REPO_DIR"

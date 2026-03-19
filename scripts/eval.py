@@ -53,26 +53,20 @@ def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
             )
             FastLanguageModel.for_inference(model)
         except ImportError:
-            # Use MPS on Apple Silicon, CUDA if available, else CPU
-            if torch.backends.mps.is_available():
-                device_map, dtype = "mps", torch.bfloat16
-                bnb_config = None  # bitsandbytes 4-bit not supported on MPS
-            elif torch.cuda.is_available() and cfg.load_in_4bit:
+            if torch.cuda.is_available() and cfg.load_in_4bit:
                 from transformers import BitsAndBytesConfig
-                device_map, dtype = "auto", torch.bfloat16
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_compute_dtype=torch.bfloat16,
                 )
             else:
-                device_map, dtype = "auto", torch.bfloat16
                 bnb_config = None
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 quantization_config=bnb_config,
-                torch_dtype=dtype,
-                device_map=device_map,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
                 trust_remote_code=True,
             )
             tokenizer = AutoTokenizer.from_pretrained(
