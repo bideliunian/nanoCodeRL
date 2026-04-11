@@ -25,6 +25,15 @@ def extract_code(completion: str) -> str:
     # Remove <think>...</think> blocks (Qwen3 thinking mode leaking into output)
     completion = re.sub(r"<think>.*?</think>", "", completion, flags=re.DOTALL).strip()
 
+    # Strip Qwen2.5-Coder FIM special tokens that leak as literal text when they
+    # act as eos but aren't in tokenizer.all_special_ids (so skip_special_tokens
+    # doesn't strip them at decode time). Truncate at the first occurrence.
+    _FIM_MARKERS = ("<|file_sep|>", "<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>")
+    for marker in _FIM_MARKERS:
+        idx = completion.find(marker)
+        if idx != -1:
+            completion = completion[:idx].strip()
+
     # Extract from a complete code block (opening + closing fence)
     match = re.search(r"```(?:python)?\n(.*?)```", completion, re.DOTALL)
     if match:

@@ -164,43 +164,61 @@ def prepare_dataset(problems: list[dict], tokenizer, cfg: Config) -> list[dict]:
 # DAPO dynamic sampling
 # ---------------------------------------------------------------------------
 
-class DynamicSampler(torch.utils.data.Sampler):
+class DynamicDataset(torch.utils.data.Dataset):
     """DAPO dynamic sampling: deprioritize problems with consistently zero-variance rewards.
 
-    After each step, the reward function reports which problem indices had
-    zero-variance rollouts (all pass or all fail). Problems that fail
-    `max_zero_var_streak` times consecutively are moved to a low-priority pool
-    and sampled rarely, ensuring the training batch always contains learnable
-    examples with non-trivial reward signal.
+    Wraps the full dataset and maintains an active index list that is refreshed
+    each epoch via DynamicSamplingCallback. GRPOTrainer requires a map-style
+    Dataset (not IterableDataset) because accelerate's find_batch_size needs
+    to inspect tensor fields; string fields in an IterableDataset break it.
+
+    The previous implementation materialised a filtered list once at startup
+    when all zero_var_counts were empty — the feedback loop never activated.
+    This class fixes that by keeping the index list mutable and refreshing it
+    before each epoch.
     """
 
-    def __init__(self, dataset, reward_fn, max_zero_var_streak: int = 3,
-                 deprioritize_prob: float = 0.05):
-        self.dataset = dataset
+    def __init__(self, full_dataset: list[dict], reward_fn,
+                 max_zero_var_streak: int = 3, deprioritize_prob: float = 0.05):
+        self.full_dataset = full_dataset
         self.reward_fn = reward_fn
         self.max_zero_var_streak = max_zero_var_streak
-        self.deprioritize_prob = deprioritize_prob  # prob of sampling a bad problem
-        self._rng = torch.Generator()
+        self.deprioritize_prob = deprioritize_prob
+        self._active_indices = list(range(len(full_dataset)))  # start: all active
 
-    def __len__(self):
-        return len(self.dataset)
-
-    def __iter__(self):
+    def refresh(self):
+        """Rebuild active index list from current zero_var_counts. Called each epoch."""
         counts = self.reward_fn.zero_var_counts
-        n = len(self.dataset)
-        active = [i for i in range(n)
-                  if counts.get(i, 0) < self.max_zero_var_streak]
-        inactive = [i for i in range(n)
-                    if counts.get(i, 0) >= self.max_zero_var_streak]
+        n = len(self.full_dataset)
+        active = [i for i in range(n) if counts.get(i, 0) < self.max_zero_var_streak]
+        inactive = [i for i in range(n) if counts.get(i, 0) >= self.max_zero_var_streak]
 
-        # Shuffle active pool; occasionally inject inactive problems so they can recover
         order = active.copy()
         random.shuffle(order)
         for idx in inactive:
             if random.random() < self.deprioritize_prob:
                 order.append(idx)
 
-        return iter(order)
+        self._active_indices = order
+        if inactive:
+            print(f"  DynamicDataset: {len(active)} active, {len(inactive)} deprioritized "
+                  f"(zero-var streak ≥ {self.max_zero_var_streak})")
+
+    def __len__(self):
+        return len(self._active_indices)
+
+    def __getitem__(self, idx):
+        return self.full_dataset[self._active_indices[idx]]
+
+
+class DynamicSamplingCallback(TrainerCallback):
+    """Refresh DynamicDataset active indices at the start of each epoch."""
+
+    def __init__(self, dynamic_dataset: DynamicDataset):
+        self.dynamic_dataset = dynamic_dataset
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        self.dynamic_dataset.refresh()
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +257,13 @@ class IntermediateEvalCallback(TrainerCallback):
         _tok = getattr(self.tokenizer, "tokenizer", self.tokenizer)
         inputs = _tok(text, return_tensors="pt").to(self.model.device)
 
+        fim_tokens = ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|file_sep|>"]
+        fim_ids = [
+            tid for tok in fim_tokens
+            if (tid := _tok.convert_tokens_to_ids(tok)) != _tok.unk_token_id
+        ]
+        eos_ids = list({_tok.eos_token_id} | set(fim_ids))
+
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -246,11 +271,12 @@ class IntermediateEvalCallback(TrainerCallback):
                 temperature=self.cfg.temperature,
                 top_p=self.cfg.top_p,
                 do_sample=True,
-                pad_token_id=self.tokenizer.pad_token_id,
+                pad_token_id=_tok.pad_token_id,
+                eos_token_id=eos_ids,
             )
 
         new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
-        return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        return _tok.decode(new_tokens, skip_special_tokens=True)
 
     def on_step_end(self, args, state, control, **kwargs):
         step = state.global_step
@@ -318,12 +344,18 @@ def main():
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate")
     parser.add_argument(
         "--train-data", type=str, nargs="+", default=None,
-        help="Training data sources (code_contests, mbpp_full). Default: code_contests",
+        help="Training data sources (code_contests, mbpp_full). Default: mbpp_full code_contests",
     )
     parser.add_argument("--batch-size", type=int, default=None, help="Override batch_size")
     parser.add_argument("--num-rollouts", type=int, default=None, help="Override num_rollouts")
     parser.add_argument("--max-length", type=int, default=None, help="Override max_completion_length")
     parser.add_argument("--grad-accum", type=int, default=None, help="Override gradient_accumulation_steps")
+    parser.add_argument("--model", type=str, default=None, help="Override model_name (e.g. Qwen/Qwen3.5-4B)")
+    parser.add_argument("--no-vllm", action="store_true", help="Disable vLLM (fallback to model.generate)")
+    parser.add_argument("--eval-subset-size", type=int, default=None,
+                        help="Problems per benchmark for mid-training eval (0=full, default from config)")
+    parser.add_argument("--save-steps", type=int, default=None,
+                        help="Override save/eval checkpoint interval (default: eval_every_n_steps from config)")
     args = parser.parse_args()
 
     cfg = Config()
@@ -343,6 +375,14 @@ def main():
         cfg.max_completion_length = args.max_length
     if args.grad_accum:
         cfg.gradient_accumulation_steps = args.grad_accum
+    if args.model:
+        cfg.model_name = args.model
+    if args.no_vllm:
+        cfg.use_vllm = False
+    if args.eval_subset_size is not None:
+        cfg.eval_subset_size = args.eval_subset_size
+    if args.save_steps is not None:
+        cfg.eval_every_n_steps = args.save_steps
 
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
     os.makedirs(cfg.log_dir, exist_ok=True)
@@ -395,7 +435,7 @@ def main():
         logging_steps=1,
         save_steps=cfg.eval_every_n_steps,
         bf16=True,
-        gradient_checkpointing=False,
+        gradient_checkpointing=True,
         loss_type="dapo",
         # DAPO Clip-Higher: asymmetric clipping encourages exploration on good samples
         epsilon=cfg.clip_eps,           # lower bound (standard PPO clip)
@@ -418,24 +458,20 @@ def main():
     # Build callbacks
     eval_callback = IntermediateEvalCallback(model, tokenizer, cfg)
 
-    # DAPO dynamic sampling: build filtered dataset using DynamicSampler.
-    # DynamicSampler reads zero_var_counts from reward_fn after each step.
-    # On the first run the counts are all 0, so all problems are included.
-    dynamic_sampler = DynamicSampler(dataset, reward_fn)
-    filtered_indices = list(dynamic_sampler)
-    filtered_dataset = [dataset[i] for i in filtered_indices]
-    if len(filtered_dataset) < len(dataset):
-        print(f"Dynamic sampling: {len(filtered_dataset)}/{len(dataset)} problems active "
-              f"({len(dataset) - len(filtered_dataset)} deprioritized)")
+    # DAPO dynamic sampling: DynamicDataset holds the active index list and
+    # DynamicSamplingCallback refreshes it at the start of each epoch, picking
+    # up the latest zero_var_counts from the reward function.
+    dynamic_dataset = DynamicDataset(dataset, reward_fn)
+    dynamic_sampling_callback = DynamicSamplingCallback(dynamic_dataset)
 
     # Initialize trainer
     trainer = GRPOTrainer(
         model=model,
         args=training_config,
-        train_dataset=filtered_dataset,
+        train_dataset=dynamic_dataset,
         reward_funcs=reward_fn,
         processing_class=tokenizer,
-        callbacks=[eval_callback],
+        callbacks=[eval_callback, dynamic_sampling_callback],
     )
 
     # Train

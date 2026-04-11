@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 @dataclass
 class Config:
     # Model
-    model_name: str = "Qwen/Qwen3.5-4B"
-    load_in_4bit: bool = True  # QLoRA; set False for full BF16 on A100
+    model_name: str = "Qwen/Qwen2.5-Coder-7B"
+    load_in_4bit: bool = False  # BF16 on A100 SXM 80GB; set True for 40GB
 
     # LoRA
     lora_r: int = 16
@@ -26,13 +26,13 @@ class Config:
     top_p: float = 0.95
 
     # DAPO / GRPO
-    num_rollouts: int = 8        # rollouts per prompt
+    num_rollouts: int = 16       # rollouts per prompt
     # In TRL GRPO, batch_size = completions per micro-batch (not prompts).
     # Unique prompts per update = batch_size * grad_accum / num_rollouts.
-    batch_size: int = 8
+    batch_size: int = 16
 
     gradient_accumulation_steps: int = 1
-    num_train_steps: int = 200
+    num_train_steps: int = 500
     learning_rate: float = 1e-6
     lr_scheduler: str = "cosine"
     warmup_steps: int = 10
@@ -48,7 +48,7 @@ class Config:
 
     # Data — train on CodeContests, eval on HumanEval + MBPP (no overlap)
     train_benchmarks: list[str] = field(
-        default_factory=lambda: ["code_contests"]
+        default_factory=lambda: ["mbpp_full", "code_contests"]
     )
     # CodeContests difficulty filter. Enum clusters: 0=unknown(33%), 1-6=easy(7%),
     # 7-11=medium/hard(52%), 12+=very hard(8%). Default 7 keeps easy problems only.
@@ -64,7 +64,7 @@ class Config:
     eval_benchmarks: list[str] = field(
         default_factory=lambda: ["humaneval", "mbpp"]
     )
-    eval_subset_size: int = 30  # problems per benchmark for intermediate eval (0 = full)
+    eval_subset_size: int = 0   # problems per benchmark for intermediate eval (0 = full)
 
     # Paths
     checkpoint_dir: str = "checkpoints"
@@ -75,8 +75,8 @@ class Config:
     # Install first: uv pip install vllm
     # Colocate mode: vLLM and training share the GPU; sleep mode releases vLLM
     # memory during the backward pass, preventing OOM on large rollout batches.
-    use_vllm: bool = False
-    vllm_gpu_memory_utilization: float = 0.35  # fraction of VRAM for vLLM generation
+    use_vllm: bool = True
+    vllm_gpu_memory_utilization: float = 0.45  # fraction of VRAM for vLLM generation
 
     # Logging
     use_wandb: bool = False

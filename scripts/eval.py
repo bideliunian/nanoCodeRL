@@ -108,6 +108,16 @@ def generate_solutions_batch(
             batch_texts, return_tensors="pt", padding=True, truncation=True,
         ).to(model.device)
 
+        # Build eos_token_id list including FIM special tokens so generation
+        # stops immediately if the model produces fill-in-the-middle tokens
+        # (Qwen2.5-Coder: <|fim_prefix|>, <|fim_suffix|>, <|fim_middle|>, <|file_sep|>)
+        fim_tokens = ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|file_sep|>"]
+        fim_ids = [
+            tid for tok in fim_tokens
+            if (tid := _tok.convert_tokens_to_ids(tok)) != _tok.unk_token_id
+        ]
+        eos_ids = list({_tok.eos_token_id} | set(fim_ids))
+
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -116,13 +126,14 @@ def generate_solutions_batch(
                 top_p=cfg.top_p,
                 do_sample=True,
                 pad_token_id=_tok.pad_token_id,
+                eos_token_id=eos_ids,
             )
 
         # Decode only the newly generated tokens for each sequence
         for j, output_ids in enumerate(outputs):
             prompt_len = inputs["input_ids"].shape[1]
             new_tokens = output_ids[prompt_len:]
-            completion = tokenizer.decode(new_tokens, skip_special_tokens=True)
+            completion = _tok.decode(new_tokens, skip_special_tokens=True)
             completions.append(completion)
 
     _tok.padding_side = original_side
