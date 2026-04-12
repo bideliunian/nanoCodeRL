@@ -19,58 +19,32 @@ from nanoCodeRL.sandbox import compute_reward, extract_code
 
 
 def load_model_for_eval(model_name: str, ckpt: str | None, cfg: Config):
-    """Load model for evaluation, optionally from a LoRA checkpoint."""
+    """Load model for evaluation using standard HF/PEFT (no Unsloth).
+
+    Unsloth monkey-patches model forward methods with Triton kernels during
+    from_pretrained(), which fail to compile on this torch/CUDA build. Eval
+    uses plain HF inference — slightly slower but reliable.
+    """
     if ckpt:
-        try:
-            from unsloth import FastLanguageModel
-            model, tokenizer = FastLanguageModel.from_pretrained(
-                model_name=ckpt,
-                max_seq_length=cfg.max_completion_length + 512,
-                load_in_4bit=cfg.load_in_4bit,
-            )
-            FastLanguageModel.for_inference(model)
-            print(f"Loaded checkpoint from {ckpt} via Unsloth")
-        except (ImportError, NotImplementedError):
-            from peft import PeftModel
-            base_model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-            model = PeftModel.from_pretrained(base_model, ckpt)
-            model = model.merge_and_unload()
-            tokenizer = AutoTokenizer.from_pretrained(ckpt, trust_remote_code=True)
-            print(f"Loaded checkpoint from {ckpt} via PEFT")
+        from peft import PeftModel
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        model = PeftModel.from_pretrained(base_model, ckpt)
+        model = model.merge_and_unload()
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        print(f"Loaded checkpoint from {ckpt} via PEFT (merged)")
     else:
-        try:
-            from unsloth import FastLanguageModel
-            model, tokenizer = FastLanguageModel.from_pretrained(
-                model_name=model_name,
-                max_seq_length=cfg.max_completion_length + 512,
-                load_in_4bit=cfg.load_in_4bit,
-            )
-            FastLanguageModel.for_inference(model)
-        except (ImportError, NotImplementedError):
-            if torch.cuda.is_available() and cfg.load_in_4bit:
-                from transformers import BitsAndBytesConfig
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                )
-            else:
-                bnb_config = None
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                quantization_config=bnb_config,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_name, trust_remote_code=True
-            )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         print(f"Loaded base model: {model_name}")
 
     if tokenizer.pad_token is None:
